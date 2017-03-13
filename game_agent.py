@@ -6,12 +6,9 @@ augment the test suite with your own test cases to further test your code.
 You must test your agent's strength against a set of agents with known
 relative strength using tournament.py and include the results in your report.
 """
-#import random
-#import time
-#import copy
+
 from collections import defaultdict
 import logging
-from sample_players import improved_score
 
 logging.basicConfig(filename='tournament.log', filemode='w',\
                     format='%(lineno)d:%(levelname)s: %(message)s', level=logging.DEBUG)
@@ -63,7 +60,7 @@ def custom_score(game, player):
 #     # AVERAGE:
 #     # Closer to the center of the board = better (more options)
 #     # Enemy further away from center = better
-#     # --> use manhattan distance
+#     # --> use Manhattan distance
 #     pr, pc = game.get_player_location(player)
 #     er, ec = game.get_player_location(game.get_opponent(player))
 #     h_center = float(game.height) / 2
@@ -76,29 +73,48 @@ def custom_score(game, player):
 #     # GOOD:
 #     # Length of the possible knight's tour in this situation - 
 #     # Length of the opponent's KT in this situation
-#     return float(knights_tour(0, game.copy(), game.get_player_location(player)) \
-#                  - 3 * knights_tour(0, game.copy(), game.get_player_location(game.get_opponent(player))))
+#     return float(thorough_knights_tour(0, game.copy(), game.get_player_location(player)) \
+#                  - 3 * thorough_knights_tour(0, game.copy(), game.get_player_location(game.get_opponent(player))))
 #==============================================================================
 
-    # COMBO:
-    w1, w2 = (1, 2)
-    h_num_legal_moves = (float(w1 * len(game.get_legal_moves(player)) \
-                             - w2 * len(game.get_legal_moves(game.get_opponent(player)))))
-    h_num_legal_moves = 100 * h_num_legal_moves / max(w1 * 8, abs(-w2 * 8))  # Normalized heuristic
-    
-    w1, w2 = (1, 2)
-    h_knights_tour = float(w1 * thorough_knights_tour(0, game.copy(), game.get_player_location(player)) \
-                         - w2 * thorough_knights_tour(0, game.copy(), game.get_player_location(game.get_opponent(player))))
+    # COMBO WITH OTHER IMPROVEMENTS: BEST
+    # Get the number of moves left to determine the game stage
     num_blank_spaces = len(game.get_blank_spaces())
-    h_knights_tour = 100 * h_knights_tour / max(w1 * num_blank_spaces, abs(-w2 * num_blank_spaces))  # Normalized heuristic
     
-    w1, w2 = (1, 1)
-#    logging.info("Heuristic scores: legal moves: %s and knight's tour: %s." % (w1 * h_num_legal_moves, w2 * h_knights_tour))
+    # Determine game stage arbitrarily
+    if num_blank_spaces < 15:
+        # Less than x moves left: go for search depth!
+        # Use the light version 'greedy_knights_tour' to make a good estimation
+        w1, w2 = (1, 2)  # weights player vs. opponent
+        h_num_legal_moves = (float(w1 * len(game.get_legal_moves(player)) \
+                                 - w2 * len(game.get_legal_moves(game.get_opponent(player)))))
+        h_num_legal_moves = 100 * h_num_legal_moves / max(w1 * 8, abs(-w2 * 8))  # Normalized heuristic
+        
+        w1, w2 = (1, 2)  # weights player vs. opponent
+        h_knights_tour = float(w1 * greedy_knights_tour(0, game.copy(), game.get_player_location(player)) \
+                             - w2 * greedy_knights_tour(0, game.copy(), game.get_player_location(game.get_opponent(player))))
+        h_knights_tour = 100 * h_knights_tour / max(w1 * num_blank_spaces, abs(-w2 * num_blank_spaces))  # Normalized heuristic
+        
+        w1, w2 = (1, 1)  # weights for different heuristics
+        
+    else:
+        # More than x moves left: go for score quality!
+        # Use the heavy version 'thorough_knights_tour' to determine the best tour
+        w1, w2 = (1, 2)  # weights player vs. opponent
+        h_num_legal_moves = (float(w1 * len(game.get_legal_moves(player)) \
+                                 - w2 * len(game.get_legal_moves(game.get_opponent(player)))))
+        h_num_legal_moves = 100 * h_num_legal_moves / max(w1 * 8, abs(-w2 * 8))  # Normalized heuristic
+        
+        w1, w2 = (1, 2)  # weights player vs. opponent
+        h_knights_tour = float(w1 * thorough_knights_tour(0, game.copy(), game.get_player_location(player)) \
+                             - w2 * thorough_knights_tour(0, game.copy(), game.get_player_location(game.get_opponent(player))))
+        h_knights_tour = 100 * h_knights_tour / max(w1 * num_blank_spaces, abs(-w2 * num_blank_spaces))  # Normalized heuristic
+        
+        w1, w2 = (1, 1)  # weights for different heuristics
+    
+
+    # logging.info("Heuristic scores: legal moves: %s and knight's tour: %s." % (w1 * h_num_legal_moves, w2 * h_knights_tour))
     return w1 * h_num_legal_moves + w2 * h_knights_tour
-    # Strategies:
-        # play with different weights
-        # use different heuristics in different game stages
-        # use different heuristics in different scenarios
 
 def reach(game, player, num_moves=2):
     all_moves = set([m for move in game.get_legal_moves(player) \
@@ -117,7 +133,6 @@ def greedy_knights_tour(n, game, pos):
     """ 
     while True:
         neighbours = game.__get_moves__(pos)
-#        print("Neighbours: %s at pos %s" %(neighbours, pos))
         if len(neighbours) == 0:
             return n
         else:
@@ -128,15 +143,10 @@ def greedy_knights_tour(n, game, pos):
                 if num_moves < min_moves:
                     min_moves = num_moves
                     best_nb = nb
-            if best_nb:
-                pos = best_nb
-                n += 1
-#                print("Found best nb: %s" % (str(best_nb)))
-                game.__board_state__[best_nb[0]][best_nb[1]] = 'KT' + str(n)
-#                print(game.to_string())
-            else:
-                print("ERROR")
-                raise("WTF")
+            assert best_nb, "No best neighbour found in greedy knight's tour search"
+            pos = best_nb
+            n += 1
+            game.__board_state__[best_nb[0]][best_nb[1]] = 'KT' + str(n)
 
 def thorough_knights_tour(n, game, pos):
     """
@@ -205,7 +215,7 @@ class CustomPlayer:
         self.time_left = None
         self.TIMER_THRESHOLD = timeout
         self.transposition_table = {}
-        self.depths = []
+        self.depths = []  # Only used for logging!
 
     def get_move(self, game, legal_moves, time_left):
         """Search for the best move from the available legal moves and return a
@@ -255,36 +265,36 @@ class CustomPlayer:
         if self.method is 'minimax': search = self.minimax
         elif self.method is 'alphabeta': search = self.alphabeta
         
-        # TODO: opening book
-        
-        # initiate empty table here. The table is of the form:
-        # dict(key: unique hashed number, value: tuple(moves_sorted_by_'goodness'))
+        # initiate empty transposition table here. The table is of the form:
+        # dict(key: unique hashed board state, value: tuple(moves_sorted_by_'goodness'))
         self.transposition_table = defaultdict(tuple)
-        
-        # For testing. Whether to use transposition or not is toggled here:
-        transposition = True
-#        transposition = False
-        
+
         try:
             # The search method call (alpha beta or minimax) should happen in
             # here in order to avoid timeout. The try/except block will
             # automatically catch the exception raised by the search method
             # when the timer gets close to expiring
             if self.iterative:
+                # Searching using iterative deepening.
                 depth = 1
                 while True:
+                    # Only use the transposition table for the first x moves
+                    # In later game, it can slow down the process too much
+                    if depth <= 10: transposition = True
+                    else:           transposition = False
+                    
                     # Try to go forever, the timeout will stop us
                     score, best_move = search(game, depth, transposition)
                     if score == float("-inf") or score == float("+inf"):
                         break
                     depth += 1
-                    
             else:
-                score, best_move = search(game, self.search_depth, transposition)
+                # Searching with fixed search depth
+                score, best_move = search(game, self.search_depth)
         
         except Timeout:
             # Handle any actions required at timeout, if necessary
-            if self.iterative: self.depths.append(depth)
+            if self.iterative: self.depths.append(depth)  # Only used for logging!
             return best_move
 
         # Return the best move from the last completed search iteration
@@ -302,6 +312,10 @@ class CustomPlayer:
         depth : int
             Depth is an integer representing the maximum number of plies to
             search in the game tree before aborting
+            
+        transposition : dict
+            A table (dict of tuples) to remember the best moves in specific
+            board states.
 
         maximizing_player : bool
             Flag indicating whether the current search depth corresponds to a
@@ -323,37 +337,40 @@ class CustomPlayer:
         """
         if self.time_left() < self.TIMER_THRESHOLD:
             raise Timeout()
-
-        # TODO: this can be optimized, doesn't need to be calculated if the board state is
-        # in the transposition table
-        legal_moves = game.get_legal_moves()
         
-        if depth == 0 or not legal_moves:
+        if depth == 0:
+            # Player lost the game
             return self.score(game, self), (-1, -1)
         
         if transposition:
             # Create the hash key for this game state
             game_hash = game.to_string()       
-            # Create dict with all moves for this node sorted from good to bad
+            # Create list with all moves for this node sorted from good to bad
             moves = list()
             if self.transposition_table[game_hash]:
+                # Select the best moves first if this state was already explored
                 selected_moves = [m for m, v in self.transposition_table[game_hash]]
             else:
-                selected_moves = legal_moves
+                legal_moves = game.get_legal_moves()
+                if not legal_moves:
+                    # Player lost the game
+                    return self.score(game, self), (-1, -1)
+                else:
+                    # Board state not in transposition table, just get legal moves
+                    selected_moves = legal_moves
         else:
-            selected_moves = legal_moves
+            selected_moves = game.get_legal_moves()
         
         if maximizing_player:
             max_v = float("-inf")
             best_move = None
-            
             for m in selected_moves:
                 v, _ = self.minimax(game.forecast_move(m), depth - 1, transposition)
                 if v > max_v:
                     max_v = v
                     best_move = m
                 if transposition:
-                    #Add move to dict
+                    # Add move to list to be sorted
                     moves.append((m, v))
             if transposition:
                 # Update transposition table with sorted list of moves (good -> bad)
@@ -363,17 +380,18 @@ class CustomPlayer:
             return max_v, best_move
         else:
             min_v = float("+inf")
+            best_move = None
             for m in selected_moves:
                 v, _ =self.minimax(game.forecast_move(m), depth - 1, transposition)
                 if v < min_v:
                     min_v = v
                     best_move = m
                 if transposition:
-                    #Add move to dict
+                    # Add move to list to be sorted
                     moves.append((m, v))
             if transposition:
                 # Update transposition table with sorted list of moves (good -> bad)
-                moves.sort(key=lambda x: x[1])
+                moves.sort(key=lambda x: x[1], reverse=True)
                 self.transposition_table[game_hash] = moves
             
             return min_v, best_move
@@ -391,6 +409,10 @@ class CustomPlayer:
         depth : int
             Depth is an integer representing the maximum number of plies to
             search in the game tree before aborting
+            
+        transposition : dict
+            A table (dict of tuples) to remember the best moves in specific
+            board states.
 
         alpha : float
             Alpha limits the lower bound of search on minimizing layers
@@ -419,23 +441,28 @@ class CustomPlayer:
         if self.time_left() < self.TIMER_THRESHOLD:
             raise Timeout()
 
-        legal_moves = game.get_legal_moves()
-        
-        if depth == 0 or not legal_moves:
+        if depth == 0:
+            # Player lost the game
             return self.score(game, self), (-1, -1)
         
         if transposition:
             # Create the hash key for this game state
             game_hash = game.to_string()       
-            # Create dict with all moves for this node sorted from good to bad
+            # Create list with all moves for this node sorted from good to bad
             moves = list()
             if self.transposition_table[game_hash]:
-                #logging.info("TRANSPOSITION!")
+                # Select the best moves first if this state was already explored
                 selected_moves = [m for m, v in self.transposition_table[game_hash]]
             else:
-                selected_moves = legal_moves
+                legal_moves = game.get_legal_moves()
+                if not legal_moves:
+                    # Player lost the game
+                    return self.score(game, self), (-1, -1)
+                else:
+                    # Board state not in transposition table, just get legal moves
+                    selected_moves = legal_moves
         else:
-            selected_moves = legal_moves
+            selected_moves = game.get_legal_moves()
         
         if maximizing_player:
             max_v = float("-inf")
@@ -446,7 +473,7 @@ class CustomPlayer:
                     max_v = v
                     best_move = m
                 if transposition:
-                    #Add move to dict
+                    # Add move to list to be sorted
                     moves.append((m, v))
                 if v >= beta:
                     return v, m
@@ -465,13 +492,13 @@ class CustomPlayer:
                     min_v = v
                     best_move = m
                 if transposition:
-                    #Add move to dict
+                    # Add move to list to be sorted
                     moves.append((m, v))
                 if v <= alpha:
                     return v, m
                 beta = min(v, beta)
             if transposition:
                 # Update transposition table with sorted list of moves (good -> bad)
-                moves.sort(key=lambda x: x[1])
+                moves.sort(key=lambda x: x[1], reverse=True)
                 self.transposition_table[game_hash] = moves
             return min_v, best_move
